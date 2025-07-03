@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# whodidit — CLI tool to inspect modified files and flag suspicious ones
+
+VERSION="1.0.0"
+
+# Show help
+show_help() {
+  echo "whodidit v$VERSION"
+  echo "Usage: whodidit [DIRECTORY] [DAYS]"
+  echo ""
+  echo "  DIRECTORY - folder to scan (default: current folder)"
+  echo "  DAYS      - how many days back to check (default: 1)"
+  echo ""
+  echo "Example:"
+  echo "  whodidit ~/Downloads 7"
+  echo ""
+  echo "Flags:"
+  echo "  --help     Show this help message"
+  echo "  --version  Show version"
+  exit 0
+}
+
+# Show version
+if [[ "$1" == "--version" ]]; then
+  echo "whodidit v$VERSION"
+  exit 0
+fi
+
+# Show help
+if [[ "$1" == "--help" ]]; then
+  show_help
+fi
+
+# Args
+TARGET="${1:-.}"
+DAYS="${2:-1}"
+
+echo "🔍 Scanning '$TARGET' for files modified in last $DAYS day(s)..."
+echo ""
+
+# Check dependencies
+for cmd in find stat file; do
+  if ! command -v "$cmd" &>/dev/null; then
+    echo "❌ Required command '$cmd' not found."
+    exit 1
+  fi
+done
+
+# Check if world-writable
+_is_world_writable() {
+  [[ "$1" =~ ..7$|.7.|7.. ]]
+}
+
+# Main
+while IFS= read -r -d '' f; do
+  IFS='|' read -r name owner mtime perm < <(stat --format '%n|%U|%y|%a' "$f")
+  type=$(file -b "$name")
+
+  flags=()
+  [[ -x "$name" ]] && flags+=("executable")
+  _is_world_writable "$perm" && flags+=("world-writable")
+  [[ "$(basename "$name")" == .* ]] && flags+=("dotfile")
+
+  echo "$name"
+  echo "  Owner: $owner | Modified: $mtime"
+  echo "  Perm: $perm | Type: $type"
+  if (( ${#flags[@]} )); then
+    echo "  ⚠️  Suspicious: ${flags[*]}"
+  fi
+  echo ""
+done < <(find "$TARGET" -type f -mtime "-$DAYS" -print0 | sort -z)
+
+echo "✅ Done."
